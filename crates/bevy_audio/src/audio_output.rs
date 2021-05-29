@@ -3,15 +3,14 @@ use bevy_asset::{Asset, Assets};
 use bevy_ecs::world::World;
 use bevy_utils::tracing::warn;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
-use std::marker::PhantomData;
+use std::{cell::RefCell, marker::PhantomData};
 
 /// Used internally to play audio on the current "audio device"
 pub struct AudioOutput<P = AudioSource>
 where
     P: Decodable,
 {
-    _stream: Option<OutputStream>,
-    stream_handle: Option<OutputStreamHandle>,
+    stream: RefCell<Option<(OutputStream, OutputStreamHandle)>>,
     phantom: PhantomData<P>,
 }
 
@@ -20,19 +19,9 @@ where
     P: Decodable,
 {
     fn default() -> Self {
-        if let Ok((stream, stream_handle)) = OutputStream::try_default() {
-            Self {
-                _stream: Some(stream),
-                stream_handle: Some(stream_handle),
-                phantom: PhantomData,
-            }
-        } else {
-            warn!("No audio device found.");
-            Self {
-                _stream: None,
-                stream_handle: None,
-                phantom: PhantomData,
-            }
+        Self {
+            stream: RefCell::new(None),
+            phantom: PhantomData,
         }
     }
 }
@@ -43,11 +32,32 @@ where
     <P as Decodable>::Decoder: rodio::Source + Send + Sync,
     <<P as Decodable>::Decoder as Iterator>::Item: rodio::Sample + Send + Sync,
 {
+    fn init_device(&self) {
+        if let Ok(mut cell) = self.stream.try_borrow_mut() {
+            if let Ok((stream, stream_handle)) = OutputStream::try_default() {
+                cell.replace((stream, stream_handle));
+            } else {
+                warn!("No audio device found.");
+            }
+        }
+    }
+
     fn play_source(&self, audio_source: &P) {
-        if let Some(stream_handle) = &self.stream_handle {
-            let sink = Sink::try_new(&stream_handle).unwrap();
-            sink.append(audio_source.decoder());
-            sink.detach();
+        for _ in 0..2 {
+            if let Ok(stream) = self.stream.try_borrow() {
+                if let Some((_, stream_handle)) = stream.as_ref() {
+                    if let Ok(sink) = Sink::try_new(stream_handle) {
+                        sink.append(audio_source.decoder());
+                        sink.detach();
+
+                        // Playback successful, break out of loop.
+                        break;
+                    }
+                }
+            }
+
+            // Playback failed, try to initialize audio device.
+            self.init_device();
         }
     }
 
