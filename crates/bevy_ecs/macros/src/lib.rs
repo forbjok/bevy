@@ -402,7 +402,7 @@ pub fn derive_system_param(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl #impl_generics #path::system::SystemParamFetch<'w, 's> for #fetch_struct_name <(#(<#field_types as #path::system::SystemParam>::Fetch,)*), #punctuated_generic_idents> {
+        impl #impl_generics #path::system::SystemParamFetch<'w, 's> for #fetch_struct_name <(#(<#field_types as #path::system::SystemParam>::Fetch,)*), #punctuated_generic_idents> #where_clause {
             type Item = #struct_name #ty_generics;
             unsafe fn get_param(
                 state: &'s mut Self,
