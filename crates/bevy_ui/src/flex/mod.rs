@@ -1,6 +1,6 @@
 mod convert;
 
-use crate::{CalculatedSize, Node, Style};
+use crate::{CalculatedSize, Node, Style, CAMERA_UI};
 use bevy_app::EventReader;
 use bevy_ecs::{
     entity::Entity,
@@ -8,7 +8,8 @@ use bevy_ecs::{
     system::{Query, Res, ResMut},
 };
 use bevy_log::warn;
-use bevy_math::Vec2;
+use bevy_math::{Vec2, Vec3};
+use bevy_render::camera::{ActiveCameras, Camera};
 use bevy_transform::prelude::{Children, Parent, Transform};
 use bevy_utils::HashMap;
 use bevy_window::{Window, WindowId, WindowScaleFactorChanged, Windows};
@@ -132,7 +133,7 @@ without UI components as a child of an entity with UI components, results may be
             .unwrap();
     }
 
-    pub fn update_window(&mut self, window: &Window) {
+    pub fn update_window(&mut self, window: &Window, camera_scale: Vec3) {
         let stretch = &mut self.stretch;
         let node = self.window_nodes.entry(window.id()).or_insert_with(|| {
             stretch
@@ -145,8 +146,12 @@ without UI components as a child of an entity with UI components, results may be
                 *node,
                 stretch::style::Style {
                     size: stretch::geometry::Size {
-                        width: stretch::style::Dimension::Points(window.physical_width() as f32),
-                        height: stretch::style::Dimension::Points(window.physical_height() as f32),
+                        width: stretch::style::Dimension::Points(
+                            window.physical_width() as f32 * camera_scale.x,
+                        ),
+                        height: stretch::style::Dimension::Points(
+                            window.physical_height() as f32 * camera_scale.y,
+                        ),
                     },
                     ..Default::default()
                 },
@@ -211,10 +216,19 @@ pub fn flex_node_system(
     >,
     children_query: Query<(Entity, &Children), (With<Node>, Changed<Children>)>,
     mut node_transform_query: Query<(Entity, &mut Node, &mut Transform, Option<&Parent>)>,
+    active_cameras: Res<ActiveCameras>,
+    camera_query: Query<&Transform, (With<Camera>, Without<Node>)>,
 ) {
+    let camera_scale = active_cameras
+        .get(CAMERA_UI)
+        .and_then(|ac| ac.entity)
+        .and_then(|entity| camera_query.get(entity).ok())
+        .map(|tf| tf.scale)
+        .unwrap_or(Vec3::splat(1.0));
+
     // update window root nodes
     for window in windows.iter() {
-        flex_surface.update_window(window);
+        flex_surface.update_window(window, camera_scale);
     }
 
     // assume one window for time being...
